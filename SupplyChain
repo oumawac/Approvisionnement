@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.8.0;
+
+contract SupplyChain {
+    enum Status { Created, InTransit, Delivered }
+
+    struct ItemOwnership {
+        address owner;
+        uint256 timestamp;
+    }
+
+    struct Item {
+        uint256 itemId;
+        string itemName;
+        uint256 quantity;
+        address sender;
+        address receiver;
+        Status status;
+        string additionalInfo;  // Additional information about the item
+        mapping(uint256 => string) transactionHistory;
+    }
+
+    mapping(uint256 => Item) public items;
+    mapping(uint256 => mapping(address => ItemOwnership)) public itemOwnerships;  // Track ownership of the item
+    uint256 public itemCount;
+
+    event ItemCreated(uint256 itemId, string itemName, uint256 quantity, address sender);
+    event ItemInTransit(uint256 itemId, address sender, address receiver);
+    event ItemDelivered(uint256 itemId, address receiver);
+    event OwnershipTransferred(uint256 itemId, address previousOwner, address newOwner);
+    event ItemNameUpdated(uint256 itemId, string newName);
+    event ItemQuantityUpdated(uint256 itemId, uint256 newQuantity);
+    event ItemAdditionalInfoUpdated(uint256 itemId, string newAdditionalInfo);
+    event ItemTransactionAdded(uint256 itemId, uint256 timestamp, string transaction);
+
+    modifier onlyItemOwner(uint256 itemId) {
+        require(itemOwnerships[itemId][msg.sender].owner == msg.sender, "You are not the owner of this item.");
+        _;
+    }
+
+    function createItem(string memory itemName, uint256 quantity, address receiver, string memory additionalInfo) public {
+        itemCount++;
+        Item storage newItem = items[itemCount];
+        newItem.itemId = itemCount;
+        newItem.itemName = itemName;
+        newItem.quantity = quantity;
+        newItem.sender = msg.sender;
+        newItem.receiver = receiver;
+        newItem.status = Status.Created;
+        newItem.additionalInfo = additionalInfo;
+        itemOwnerships[itemCount][msg.sender] = ItemOwnership(msg.sender, block.timestamp);  // Set the initial ownership to the sender
+        emit ItemCreated(itemCount, itemName, quantity, msg.sender);
+    }
+
+    function updateItemStatus(uint256 itemId, Status newStatus) internal {
+        items[itemId].status = newStatus;
+    }
+
+    function markItemInTransit(uint256 itemId) public onlyItemOwner(itemId) {
+        require(items[itemId].status == Status.Created, "Item has already been marked as in transit or delivered.");
+        updateItemStatus(itemId, Status.InTransit);
+        emit ItemInTransit(itemId, items[itemId].sender, items[itemId].receiver);
+    }
+
+    function markItemDelivered(uint256 itemId) public onlyItemOwner(itemId) {
+        require(items[itemId].status == Status.InTransit, "Item is not in transit.");
+        updateItemStatus(itemId, Status.Delivered);
+        emit ItemDelivered(itemId, items[itemId].receiver);
+    }
+
+    function transferOwnership(uint256 itemId, address newOwner) public onlyItemOwner(itemId) {
+        require(newOwner != address(0), "Invalid new owner address.");
+        itemOwnerships[itemId][newOwner] = ItemOwnership(newOwner, block.timestamp);
+        delete itemOwnerships[itemId][msg.sender];
+        emit OwnershipTransferred(itemId, msg.sender, newOwner);
+    }
+
+    function getItemOwnership(uint256 itemId) public view returns (address, uint256) {
+        ItemOwnership storage ownership = itemOwnerships[itemId][msg.sender];
+        return (ownership.owner, ownership.timestamp);
+    }
+
+    function getItemAdditionalInfo(uint256 itemId) public view returns (string memory) {
+        return items[itemId].additionalInfo;
+    }
+
+    function getItemDetails(uint256 itemId) public view returns (uint256, string memory, uint256, address, address, Status, string memory) {
+        Item storage item = items[itemId];
+        return (
+            item.itemId,
+            item.itemName,
+            item.quantity,
+            item.sender,
+            item.receiver,
+            item.status,
+            item.additionalInfo
+        );
+    }
+
+    function setItemName(uint256 itemId, string memory newName) public onlyItemOwner(itemId) {
+        items[itemId].itemName = newName;
+        emit ItemNameUpdated(itemId, newName);
+    }
+
+    function setItemQuantity(uint256 itemId, uint256 newQuantity) public onlyItemOwner(itemId) {
+        items[itemId].quantity = newQuantity;
+        emit ItemQuantityUpdated(itemId, newQuantity);
+    }
+
+    function setItemAdditionalInfo(uint256 itemId, string memory newAdditionalInfo) public onlyItemOwner(itemId) {
+        items[itemId].additionalInfo = newAdditionalInfo;
+        emit ItemAdditionalInfoUpdated(itemId, newAdditionalInfo);
+    }
+
+    function increaseItemQuantity(uint256 itemId, uint256 quantityToAdd) public onlyItemOwner(itemId) {
+        items[itemId].quantity += quantityToAdd;
+        emit ItemQuantityUpdated(itemId, items[itemId].quantity);
+    }
+
+    function decreaseItemQuantity(uint256 itemId, uint256 quantityToSubtract) public onlyItemOwner(itemId) {
+        require(items[itemId].quantity >= quantityToSubtract, "Quantity to subtract exceeds item quantity.");
+        items[itemId].quantity -= quantityToSubtract;
+        emit ItemQuantityUpdated(itemId, items[itemId].quantity);
+    }
+
+    function addItemTransaction(uint256 itemId, string memory transaction) public onlyItemOwner(itemId) {
+        uint256 timestamp = block.timestamp;
+        items[itemId].transactionHistory[timestamp] = transaction;
+        emit ItemTransactionAdded(itemId, timestamp, transaction);
+    }
+
+    function getItemTransactionHistory(uint256 itemId, uint256 timestamp) public view returns (string memory) {
+        return items[itemId].transactionHistory[timestamp];
+    }
+}
